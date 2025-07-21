@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Telegram Web Clone</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <div class="wallet-box">
+          <button id="connectWallet">اتصال کیف پول</button>
+          <p id="walletAddress"></p>
+          <button id="getPubKey">دریافت Public Key</button>
+          <pre id="publicKeyBox"></pre>
+          <input type="text" id="privateKeyInput" placeholder="وارد کردن Private Key شما..." />
+          <button id="decryptBtn">Decrypt</button>
+        </div>
+      </header>
+
+      <div class="chat-list">
+        <div class="chat-item active" data-name="Ali" data-avatar="https://i.pravatar.cc/40?img=1">
+          <img class="avatar" src="https://i.pravatar.cc/40?img=1" alt="avatar">
+          <div class="chat-details">
+            <h4>Ali</h4>
+            <p>Salam, hasti?</p>
+          </div>
+        </div>
+        <div class="chat-item" data-name="Maryam" data-avatar="https://i.pravatar.cc/40?img=2">
+          <img class="avatar" src="https://i.pravatar.cc/40?img=2" alt="avatar">
+          <div class="chat-details">
+            <h4>Maryam</h4>
+            <p>Okay, mirefam!</p>
+          </div>
+        </div>
+        <!-- می‌تونی چت‌های دیگه هم همین‌طوری اضافه کنی -->
+      </div>
+    </aside>
+
+    <!-- Chat Area -->
+    <main class="chat-area">
+      <header class="chat-header">
+        <img class="avatar" src="https://i.pravatar.cc/40?img=1" alt="avatar">
+        <h3>Ali</h3>
+      </header>
+
+      <section class="chat-messages">
+        <div class="message received">Salam Ali jan</div>
+        <div class="message sent">Bale, chi mikhasti?</div>
+      </section>
+
+      <footer class="chat-input">
+        <input type="text" placeholder="Type a message..." />
+        <button>Send</button>
+      </footer>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
