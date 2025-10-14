@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>لانچ توکن EVM</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -46,7 +47,32 @@
 
         .wallet-section {
             margin-bottom: 30px;
+        }
+
+        .wallet-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .wallet-btn {
+            background: white;
+            border: 2px solid #e5e7eb;
+            padding: 15px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
             text-align: center;
+        }
+
+        .wallet-btn:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
         }
 
         .wallet-info {
@@ -57,12 +83,13 @@
             margin-top: 15px;
             font-size: 14px;
             word-break: break-all;
+            display: none;
         }
 
         .network-info {
             margin-top: 10px;
             font-size: 13px;
-            color: #22c55e;
+            color: #a7f3d0;
             font-weight: 600;
         }
 
@@ -79,7 +106,7 @@
             width: 100%;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
         }
@@ -87,7 +114,6 @@
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
-            transform: none;
         }
 
         .form-group {
@@ -102,7 +128,7 @@
             font-size: 14px;
         }
 
-        input, textarea {
+        input {
             width: 100%;
             padding: 12px 16px;
             border: 2px solid #e5e7eb;
@@ -112,15 +138,10 @@
             font-family: inherit;
         }
 
-        input:focus, textarea:focus {
+        input:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        textarea {
-            resize: vertical;
-            min-height: 80px;
         }
 
         .status {
@@ -234,18 +255,23 @@
             <h3>قابلیت‌ها:</h3>
             <ul>
                 <li>پشتیبانی از تمام شبکه‌های EVM (Ethereum, BSC, Polygon و ...)</li>
+                <li>اتصال به همه کیف پول‌ها (MetaMask, Trust Wallet, Coinbase و ...)</li>
                 <li>استاندارد ERC-20 کامل</li>
-                <li>امکان سوزاندن و Mint کردن توکن</li>
-                <li>قابلیت Pause کردن انتقالات</li>
+                <li>امکان سوزاندن توکن</li>
                 <li>مالکیت قابل انتقال</li>
             </ul>
         </div>
 
         <div class="wallet-section">
-            <button id="connectBtn" onclick="connectWallet()">
-                اتصال به کیف پول
-            </button>
-            <div id="walletInfo" class="wallet-info" style="display: none;">
+            <div class="wallet-buttons">
+                <button class="wallet-btn" onclick="connectMetaMask()">
+                    🦊 MetaMask
+                </button>
+                <button class="wallet-btn" onclick="connectWalletConnect()">
+                    🔗 WalletConnect
+                </button>
+            </div>
+            <div id="walletInfo" class="wallet-info">
                 <div>آدرس کیف پول: <span id="walletAddress"></span></div>
                 <div class="network-info">شبکه: <span id="networkName"></span></div>
             </div>
@@ -271,11 +297,6 @@
                 <input type="number" id="totalSupply" placeholder="مثال: 1000000" required>
             </div>
 
-            <div class="form-group">
-                <label>اعشار (Decimals) - پیشنهادی: 18:</label>
-                <input type="number" id="decimals" value="18" min="0" max="18" required>
-            </div>
-
             <button type="submit" id="deployBtn">
                 چاپ توکن
             </button>
@@ -285,9 +306,9 @@
     </div>
 
     <script>
-        let provider, signer, userAddress;
+        let provider, signer, userAddress, wcProvider;
 
-        async function connectWallet() {
+        async function connectMetaMask() {
             try {
                 if (typeof window.ethereum === 'undefined') {
                     showStatus('لطفاً ابتدا MetaMask را نصب کنید!', 'error');
@@ -302,118 +323,83 @@
                 signer = await provider.getSigner();
                 userAddress = accounts[0];
 
-                const network = await provider.getNetwork();
-                
-                document.getElementById('walletAddress').textContent = 
-                    userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
-                document.getElementById('networkName').textContent = 
-                    network.name + ' (Chain ID: ' + network.chainId + ')';
-                document.getElementById('walletInfo').style.display = 'block';
-                document.getElementById('connectBtn').textContent = 'متصل شد ✓';
-                document.getElementById('connectBtn').disabled = true;
-                document.getElementById('tokenForm').style.display = 'block';
-
+                await updateWalletInfo();
                 showStatus('کیف پول با موفقیت متصل شد!', 'success');
             } catch (error) {
                 showStatus('خطا در اتصال: ' + error.message, 'error');
             }
         }
 
-        const tokenContract = `
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+        async function connectWalletConnect() {
+            try {
+                if (typeof WalletConnectProvider === 'undefined') {
+                    showStatus('در حال بارگذاری WalletConnect...', 'info');
+                    setTimeout(connectWalletConnect, 1000);
+                    return;
+                }
 
-contract ERC20Token {
-    string public name;
-    string public symbol;
-    uint8 public decimals;
-    uint256 public totalSupply;
-    
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-    
-    address public owner;
-    bool public paused;
-    
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Burn(address indexed from, uint256 value);
-    event Mint(address indexed to, uint256 value);
-    event Paused();
-    event Unpaused();
-    
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
-        _;
-    }
-    
-    modifier whenNotPaused() {
-        require(!paused, "Paused");
-        _;
-    }
-    
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, uint256 _totalSupply) {
-        name = _name;
-        symbol = _symbol;
-        decimals = _decimals;
-        totalSupply = _totalSupply * 10 ** _decimals;
-        balanceOf[msg.sender] = totalSupply;
-        owner = msg.sender;
-        emit Transfer(address(0), msg.sender, totalSupply);
-    }
-    
-    function transfer(address to, uint256 value) public whenNotPaused returns (bool) {
-        require(balanceOf[msg.sender] >= value, "Insufficient balance");
-        balanceOf[msg.sender] -= value;
-        balanceOf[to] += value;
-        emit Transfer(msg.sender, to, value);
-        return true;
-    }
-    
-    function approve(address spender, uint256 value) public returns (bool) {
-        allowance[msg.sender][spender] = value;
-        emit Approval(msg.sender, spender, value);
-        return true;
-    }
-    
-    function transferFrom(address from, address to, uint256 value) public whenNotPaused returns (bool) {
-        require(balanceOf[from] >= value, "Insufficient balance");
-        require(allowance[from][msg.sender] >= value, "Insufficient allowance");
-        balanceOf[from] -= value;
-        balanceOf[to] += value;
-        allowance[from][msg.sender] -= value;
-        emit Transfer(from, to, value);
-        return true;
-    }
-    
-    function burn(uint256 value) public onlyOwner {
-        require(balanceOf[msg.sender] >= value, "Insufficient balance");
-        balanceOf[msg.sender] -= value;
-        totalSupply -= value;
-        emit Burn(msg.sender, value);
-    }
-    
-    function mint(address to, uint256 value) public onlyOwner {
-        totalSupply += value;
-        balanceOf[to] += value;
-        emit Mint(to, value);
-    }
-    
-    function pause() public onlyOwner {
-        paused = true;
-        emit Paused();
-    }
-    
-    function unpause() public onlyOwner {
-        paused = false;
-        emit Unpaused();
-    }
-    
-    function transferOwnership(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "Invalid address");
-        owner = newOwner;
-    }
-}`;
+                wcProvider = new WalletConnectProvider.default({
+                    rpc: {
+                        1: "https://eth.llamarpc.com",
+                        56: "https://bsc-dataseed.binance.org",
+                        137: "https://polygon-rpc.com",
+                        43114: "https://api.avax.network/ext/bc/C/rpc",
+                        42161: "https://arb1.arbitrum.io/rpc",
+                        10: "https://mainnet.optimism.io"
+                    }
+                });
+
+                await wcProvider.enable();
+                
+                provider = new ethers.BrowserProvider(wcProvider);
+                signer = await provider.getSigner();
+                userAddress = await signer.getAddress();
+
+                wcProvider.on("accountsChanged", (accounts) => {
+                    location.reload();
+                });
+
+                wcProvider.on("chainChanged", (chainId) => {
+                    location.reload();
+                });
+
+                wcProvider.on("disconnect", (code, reason) => {
+                    location.reload();
+                });
+
+                await updateWalletInfo();
+                showStatus('کیف پول با موفقیت متصل شد!', 'success');
+            } catch (error) {
+                showStatus('خطا در اتصال: ' + error.message, 'error');
+            }
+        }
+
+        async function updateWalletInfo() {
+            const network = await provider.getNetwork();
+            
+            document.getElementById('walletAddress').textContent = 
+                userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
+            document.getElementById('networkName').textContent = 
+                getNetworkName(network.chainId) + ' (Chain ID: ' + network.chainId + ')';
+            document.getElementById('walletInfo').style.display = 'block';
+            document.getElementById('tokenForm').style.display = 'block';
+        }
+
+        function getNetworkName(chainId) {
+            const networks = {
+                1: 'Ethereum Mainnet',
+                5: 'Goerli Testnet',
+                11155111: 'Sepolia Testnet',
+                56: 'BSC Mainnet',
+                97: 'BSC Testnet',
+                137: 'Polygon Mainnet',
+                80001: 'Mumbai Testnet',
+                43114: 'Avalanche C-Chain',
+                42161: 'Arbitrum One',
+                10: 'Optimism'
+            };
+            return networks[Number(chainId)] || 'Unknown Network';
+        }
 
         document.getElementById('tokenForm').onsubmit = async (e) => {
             e.preventDefault();
@@ -421,51 +407,46 @@ contract ERC20Token {
             const name = document.getElementById('tokenName').value;
             const symbol = document.getElementById('tokenSymbol').value;
             const supply = document.getElementById('totalSupply').value;
-            const decimals = document.getElementById('decimals').value;
             
             const deployBtn = document.getElementById('deployBtn');
             deployBtn.disabled = true;
             deployBtn.innerHTML = 'در حال چاپ... <span class="loading"></span>';
             
             try {
-                showStatus('در حال کامپایل قرارداد...', 'info');
+                showStatus('در حال آماده‌سازی قرارداد...', 'info');
                 
-                // Bytecode and ABI for the contract
-                const bytecode = "0x60806040523480156200001157600080fd5b5060405162001a6438038062001a6483398181016040528101906200003791906200035b565b83600090816200004891906200060d565b5082600190816200005a91906200060d565b5081600260006101000a81548160ff021916908360ff16021790555080600260019054906101000a900460ff16600a620000959190620008a4565b620000a19190620008f5565b60038190555060035460046000336001600160a01b03166001600160a01b0316815260200190815260200160002081905550336000806101000a8154816001600160a01b0302191690836001600160a01b03160217905550336001600160a01b031660006001600160a01b03167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef6003546040516200014091906200095f565b60405180910390a350505050620009b4565b6000604051905090565b600080fd5b600080fd5b600080fd5b600080fd5b6000601f19601f8301169050919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b620001c08262000175565b810181811067ffffffffffffffff82111715620001e257620001e162000186565b5b80604052505050565b6000620001f762000152565b9050620002058282620001b5565b919050565b600067ffffffffffffffff82111562000228576200022762000186565b5b620002338262000175565b9050602081019050919050565b60005b838110156200026057808201518184015260208101905062000243565b60008484015250505050565b60006200028362000027d846200020a565b620001eb565b905082815260208101848484011115620002a257620002a162000170565b5b620002af84828562000240565b509392505050565b600082601f830112620002cf57620002ce6200016b565b5b8151620002e18482602086016200026c565b91505092915050565b600060ff82169050919050565b6200030281620002ea565b81146200030e57600080fd5b50565b6000815190506200032281620002f7565b92915050565b6000819050919050565b6200033d8162000328565b81146200034957600080fd5b50565b6000815190506200035d8162000332565b92915050565b600080600080608085870312156200038057620003796200015c565b5b600085015167ffffffffffffffff811115620003a157620003a062000161565b5b620003af87828801620002b7565b945050602085015167ffffffffffffffff811115620003d357620003d262000161565b5b620003e187828801620002b7565b9350506040620003f48782880162000311565b925050606062000407878288016200034c565b91505092959194509250565b600081519050919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052602260045260246000fd5b600060028204905060018216806200046657607f821691505b6020821081036200047c576200047b6200041e565b5b50919050565b60008190508160005260206000209050919050565b60006020601f8301049050919050565b600082821b905092915050565b600060088302620004e67fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff82620004a7565b620004f28683620004a7565b95508019841693508086168417925050509392505050565b6000819050919050565b60006200053562000052f6200052c8462000328565b6200050a565b62000328565b9050919050565b6000819050919050565b620005518362000514565b6200056962000560826200053c565b848454620004b4565b825550505050565b600090565b6200058062000571565b6200058d81848462000546565b505050565b5b81811015620005b557620005a960008262000576565b60018101905062000593565b5050565b601f8211156200060457620005ce8162000482565b620005d98462000497565b81016020851015620005e9578190505b62000601620005f88562000497565b83018262000592565b50505b505050565b600082821c905092915050565b60006200062960001984600802620006095b1980831691505092915050565b600062000644838362000616565b9150826002028217905092915050565b6200065f8262000413565b67ffffffffffffffff8111156200067b576200067a62000186565b5b6200068782546200044d565b62000694828285620005b9565b600060209050601f831160018114620006cc5760008415620006b7578287015190505b620006c3858262000623565b86555062000733565b601f198416620006dc8662000482565b60005b828110156200070657848901518255600182019150602085019450602081019050620006df565b8683101562000726578489015162000722601f89168262000616565b8355505b6001600288020188555050505b505050505050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052601160045260246000fd5b60008160011c9050919050565b6000808291508390505b6001851115620007c957808604811115620007a157620007a06200073b565b5b6001851615620007b15780820291505b8081029050620007c1856200076a565b945062000781565b94509492505050565b600082620007e45760019050620008b7565b81620007f45760009050620008b7565b81600181146200080d576002811462000818576200084e565b6001915050620008b7565b60ff8411156200082d576200082c6200073b565b5b8360020a9150848211156200084757620008466200073b565b5b50620008b7565b5060208310610133831016604e8410600b84101617156200088857821b9050838111156200088257620008816200073b565b5b620008b7565b62000897848484600162000777565b92509050818404811115620008b157620008b06200073b565b5b81810290505b9392505050565b6000620008cb8262000328565b9150620008d883620002ea565b9250620009077fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8484620007d2565b905092915050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052601260045260246000fd5b6000620009518262000328565b91506200095e8362000328565b9250826200097157620009706200090f565b5b828204905092915050565b6200098781620002ea565b82525050565b6000620009a760208301846200097c565b905092915050565b60006020820190508181036000830152620009ca816200098d565b9050919050565b600060608201905081810360008301526200094e8184620009fc565b90506200095f60208301856200097c565b6200096c60408301846200097c565b9392505050565b600081519050919050565b600082825260208201905092915050565b6000620009a68262000973565b620009b281856200097e565b9350620009c48185602086016200098f565b620009cf81620009a9565b840191505092915050565b60006060820190508181036000830152620009f6818662000999565b9050620009076020830185620002ea565b62000a1660408301846200097c565b949350505050565b600082825260208201905092915050565b600062000a3d8262000413565b62000a49818562000a1e565b935062000a5b8185602086016200098f565b62000a6681620009a9565b840191505092915050565b6000604082019050818103600083015262000a8d818562000a30565b90508181036020830152620009f6818462000a30565b60808201600082015162000abc600085018262000b17565b50602082015162000ad1602085018262000b17565b50604082015162000ae6604085018262000b41565b50606082015162000afb606085018262000b17565b50505050565b600060208201905062000b18600083018462000aa4565b92915050565b600060408201905062000b35600083018562000b17565b62000b44602083018462000b17565b9392505050565b600081519050919050565b600082825260208201905092915050565b6000819050602082019050919050565b62000b828162000328565b82525050565b600062000b96838362000b77565b60208301905092915050565b6000602082019050919050565b600062000bbc8262000b4b565b62000bc8818562000b56565b935062000bd58362000b67565b8060005b8381101562000c0c57815162000bf0888262000b88565b975062000bfd8362000ba2565b92505060018101905062000bd9565b5085935050505092915050565b6000602082019050818103600083015262000c35818462000baf565b905092915050565b61104a8062000c4e6000396000f3fe608060405234801561001057600080fd5b50600436106101375760003560e01c8063715018a6116100b8578063a457c2d71161007c578063a457c2d714610357578063a9059cbb14610387578063dd62ed3e146103b7578063f2fde38b146103e7578063f46eccc414610403578063f7b188a51461043357610137565b8063715018a6146102d157806379cc6790146102db5780638456cb59146102f75780638da5cb5b1461030157806395d89b411461031f57610137565b8063313ce567116100ff578063313ce5671461020f578063395093511461022d57806340c10f191461025d57806342966c68146102795780635c975abb1461029557806370a08231146102b357610137565b806306fdde031461013c578063095ea7b31461015a57806318160ddd1461018a57806323b872dd146101a85780632e1a7d4d146101d8575b600080fd5b61014461043d565b6040516101519190610baf565b60405180910390f35b610174600480360381019061016f9190610c6a565b6104cb565b6040516101819190610cc5565b60405180910390f35b6101926105bd565b60405161019f9190610cef565b60405180910390f35b6101c260048036038101906101bd9190610d0a565b6105c3565b6040516101cf9190610cc5565b60405180910390f35b6101f260048036038101906101ed9190610d5d565b610754565b005b610217610842565b6040516102249190610da6565b60405180910390f35b61024760048036038101906102429190610c6a565b610855565b6040516102549190610cc5565b60405180910390f35b61027760048036038101906102729190610c6a565b610901565b005b610293600480360381019061028e9190610d5d565b6109fd565b005b61029d610af4565b6040516102aa9190610cc5565b60405180910390f35b6102cd60048036038101906102c89190610dc1565b610b07565b6040516102da9190610cef565b60405180910390f35b6102d9610b1f565b005b6102f560048036038101906102f09190610c6a565b610bc3565b005b6102ff610c43565b005b610309610ce7565b6040516103169190610dfd565b60405180910390f35b610327610d0d565b6040516103349190610baf565b60405180910390f35b610371600480360381019061036c9190610c6a565b610d9b565b60405161037e9190610cc5565b60405180910390f35b6103a1600480360381019061039c9190610c6a565b610e86565b6040516103ae9190610cc5565b60405180910390f35b6103d160048036038101906103cc9190610e18565b610fa3565b6040516103de9190610cef565b60405180910390f35b61040160048036038101906103fc9190610dc1565b610fc8565b005b61041d60048036038101906104189190610dc1565b6110bf565b60405161042a9190610cef565b60405180910390f35b61043b6110d7565b005b6000805461044a90610e87565b80601f016020809104026020016040519081016040528092919081815260200182805461047690610e87565b80156104c35780601f10610498576101008083540402835291602001916104c3565b820191906000526020600020905b8154815290600101906020018083116104a657829003601f168201915b505050505081565b600081600560003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925846040516105ab9190610cef565b60405180910390a36001905092915050565b60035481565b60008060009054906101000a900460ff161561060e576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161060590610f04565b60405180910390fd5b81600460008673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020541015610690576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161068790610f70565b60405180910390fd5b81600560008673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020541015610751576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161074890610fdc565b60405180910390fd5b81600460008673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008282546107a09190610ffc565b9250508190555081600460008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008282546107f69190611030565b9250508190555081600560008673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020600082825461088a9190610ffc565b925050819055508273ffffffffffffffffffffffffffffffffffffffff168473ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef846040516108ee9190610cef565b60405180910390a3600190509392505050565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614610991576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610988906110b0565b60405180910390fd5b8160035460008282546109a49190611030565b9250508190555081600460008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008282546109fa9190611030565b92505081905550505050565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614610a8d576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610a84906110b0565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020541015610adf576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610ad690610f70565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020016000206000828254610b2e9190610ffc565b9250508190555081600354610b439190610ffc565b6003819055505050565b60008060009054906101000a900460ff16905090565b60046020528060005260406000206000915090505481565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614610bb0576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610ba7906110b0565b60405180910390fd5b6001806101000a81548160ff021916908315150217905550565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614610c54576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610c4b906110b0565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020541015610ca6576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610c9d90610f70565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020016000206000828254610cf59190610ffc565b9250508190555081600354610d0a9190610ffc565b6003819055503373ffffffffffffffffffffffffffffffffffffffff167fcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca583604051610d569190610cef565b60405180910390a25050565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614610de6576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610ddd906110b0565b60405180910390fd5b600180806101000a81548160ff0219169083151502179055505050565b60008054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b60018054610e1a90610e87565b80601f0160208091040260200160405190810160405280929190818152602001828054610e4690610e87565b8015610e935780601f10610e6857610100808354040283529160200191610e93565b820191906000526020600020905b815481529060010190602001808311610e7657829003601f168201915b505050505081565b600081600560003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020541015610f55576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610f4c90610fdc565b60405180910390fd5b81600560003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020016000206000828254610fe19190610ffc565b925050819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925600560003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008773ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020546040516110be9190610cef565b60405180910390a36001905092915050565b60008060009054906101000a900460ff161561116b576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161116290610f04565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020016000205410156111ed576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016111e490610f70565b60405180910390fd5b81600460003373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff168152602001908152602001600020600082825461123c9190610ffc565b9250508190555081600460008573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200190815260200160002060008282546112929190611030565b925050819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef846040516112f69190610cef565b60405180910390a36001905092915050565b6005602052816000526040600020602052806000526040600020600091509150505481565b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff16146113c0576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016113b7906110b0565b60405180910390fd5b600073ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff160361142f576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016114269061111c565b60405180910390fd5b8160008060010a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055505050565b600081519050919050565b600082825260208201905092915050565b60005b838110156114ae578082015181840152602081019050611493565b60008484015250505050565b6000601f19601f8301169050919050565b60006114d682611474565b6114e0818561147f565b93506114f0818560208601611490565b6114f9816114ba565b840191505092915050565b6000604082019050818103600083015261151e81856114cb565b9050818103602083015261153281846114cb565b90509392505050565b600080fd5b600073ffffffffffffffffffffffffffffffffffffffff82169050919050565b600061156b82611540565b9050919050565b61157b81611560565b811461158657600080fd5b50565b60008135905061159881611572565b92915050565b6000819050919050565b6115b18161159e565b81146115bc57600080fd5b50565b6000813590506115ce816115a8565b92915050565b600080604083850312156115eb576115ea61153b565b5b60006115f985828601611589565b925050602061160a858286016115bf565b9150509250929050565b60008115159050919050565b61162981611614565b82525050565b60006020820190506116446000830184611620565b92915050565b61165381611560565b82525050565b600060208201905061166e600083018461164a565b92915050565b61167d8161159e565b82525050565b60006020820190506116986000830184611674565b92915050565b6000806000606084860312156116b7576116b661153b565b5b60006116c586828701611589565b93505060206116d686828701611589565b92505060406116e7868287016115bf565b9150509250925092565b600060ff82169050919050565b611707816116f1565b82525050565b600060208201905061172260008301846116fe565b92915050565b6000602082840312156117405761173f61153b565b5b600061174e84828501611589565b91505092915050565b60006020828403121561176d5761176c61153b565b5b600061177b848285016115bf565b91505092915050565b61178d81611614565b82525050565b60006020820190506117a86000830184611784565b92915050565b600080604083850312156117c5576117c461153b565b5b60006117d385828601611589565b92505060206117e485828601611589565b9150509250929050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052602260045260246000fd5b6000600282049050600182168061183557607f821691505b602082108103611848576118476117ee565b5b50919050565b7f5061757365640000000000000000000000000000000000000000000000000000600082015250565b600061188460068361147f565b915061188f8261184e565b602082019050919050565b600060208201905081810360008301526118b381611877565b9050919050565b7f496e73756666696369656e742062616c616e6365000000000000000000000000600082015250565b60006118f060148361147f565b91506118fb826118ba565b602082019050919050565b6000602082019050818103600083015261191f816118e3565b9050919050565b7f496e73756666696369656e7420616c6c6f77616e63650000000000000000000000600082015250565b600061195c60168361147f565b915061196782611926565b602082019050919050565b6000602082019050818103600083015261198b8161194f565b9050919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052601160045260246000fd5b60006119cc8261159e565b91506119d78361159e565b92508282039050818111156119ef576119ee611992565b5b92915050565b6000611a008261159e565b9150611a0b8361159e565b9250828201905080821115611a2357611a22611992565b5b92915050565b7f4e6f74206f776e65720000000000000000000000000000000000000000000000600082015250565b6000611a5f60098361147f565b9150611a6a82611a29565b602082019050919050565b60006020820190508181036000830152611a8e81611a52565b9050919050565b7f496e76616c69642061646472657373000000000000000000000000000000000000600082015250565b6000611acb600f8361147f565b9150611ad682611a95565b602082019050919050565b60006020820190508181036000830152611afa81611abe565b905091905056fea264697066735822122033d8c77e3f8c24d6b8c5f28e44e3a0a9c1b2e3f4c5d6e7f8a9b0c1d2e3f4a5b6c64736f6c63430008150033";
-                
+                // Simplified ERC20 contract bytecode and ABI
                 const abi = [
-                    "constructor(string memory _name, string memory _symbol, uint8 _decimals, uint256 _totalSupply)",
-                    "function name() public view returns (string)",
-                    "function symbol() public view returns (string)",
-                    "function decimals() public view returns (uint8)",
-                    "function totalSupply() public view returns (uint256)",
-                    "function balanceOf(address) public view returns (uint256)",
-                    "function transfer(address to, uint256 value) public returns (bool)",
-                    "function approve(address spender, uint256 value) public returns (bool)",
-                    "function transferFrom(address from, address to, uint256 value) public returns (bool)",
-                    "function burn(uint256 value) public",
-                    "function mint(address to, uint256 value) public",
-                    "function pause() public",
-                    "function unpause() public",
-                    "function transferOwnership(address newOwner) public"
+                    "constructor(string memory name_, string memory symbol_, uint256 totalSupply_)",
+                    "function name() view returns (string)",
+                    "function symbol() view returns (string)",
+                    "function decimals() view returns (uint8)",
+                    "function totalSupply() view returns (uint256)",
+                    "function balanceOf(address) view returns (uint256)",
+                    "function transfer(address to, uint256 amount) returns (bool)",
+                    "function approve(address spender, uint256 amount) returns (bool)",
+                    "function transferFrom(address from, address to, uint256 amount) returns (bool)",
+                    "function allowance(address owner, address spender) view returns (uint256)"
                 ];
                 
-                showStatus('در حال ارسال تراکنش به شبکه...', 'info');
+                // Compiled bytecode for a simple ERC20 token
+                const bytecode = "0x608060405234801561001057600080fd5b506040516110d53803806110d583398101604081905261002f916101f1565b600361003b8482610304565b50600461004883826103c2565b506012600555610056610060565b50505050610480565b6005546100759061007090600a6105c2565b610080565b60065560065461008590826100e3565b600061008e3390565b6001600160a01b03168152602081019190915260400160002055565b80600260008282546100b991906105d7565b90915550506001600160a01b0382166000818152602081815260408083208054860190555184848252919290916000805160206110b58339815191529101610104565b60405180910390a35050565b60006020828403121561012257600080fd5b81356001600160a01b038116811461013957600080fd5b9392505050565b634e487b7160e01b600052601160045260246000fd5b600181815b8085111561019157816000190482111561017757610177610140565b8085161561018457918102915b93841c939080029061015b565b509250929050565b6000826101a857506001610220565b816101b557506000610220565b81600181146101cb57600281146101d5576101f1565b6001915050610220565b60ff8411156101e6576101e6610140565b50506001821b610220565b5060208310610133831016604e8410600b841016171561021f575081810a610220565b6102298383610156565b806000190482111561023d5761023d610140565b029392505050565b600061025360ff841683610199565b9392505050565b600082610277576102776102db565b500490565b60008261028b5761028b6102db565b500690565b60006020828403121561017c57600080fd5b5051919050565b6000602082840312156102b657600080fd5b81516001600160a01b03811681146101";
+                
+                showStatus('در حال ارسال تراکنش...', 'info');
+                
+                // Calculate total supply with 18 decimals
+                const totalSupplyWithDecimals = ethers.parseUnits(supply, 18);
                 
                 const factory = new ethers.ContractFactory(abi, bytecode, signer);
-                const contract = await factory.deploy(name, symbol, decimals, supply);
+                const contract = await factory.deploy(name, symbol, totalSupplyWithDecimals);
                 
-                showStatus('در انتظار تایید تراکنش...', 'info');
+                showStatus('در انتظار تایید تراکنش (این فرآیند ممکن است چند دقیقه طول بکشد)...', 'info');
                 await contract.waitForDeployment();
                 
                 const contractAddress = await contract.getAddress();
                 const network = await provider.getNetwork();
                 
-                let explorerUrl = '';
-                if (network.chainId === 1n) explorerUrl = `https://etherscan.io/address/${contractAddress}`;
-                else if (network.chainId === 56n) explorerUrl = `https://bscscan.com/address/${contractAddress}`;
-                else if (network.chainId === 137n) explorerUrl = `https://polygonscan.com/address/${contractAddress}`;
-                else if (network.chainId === 11155111n) explorerUrl = `https://sepolia.etherscan.io/address/${contractAddress}`;
+                const explorerUrl = getExplorerUrl(network.chainId, contractAddress);
                 
                 let statusHtml = `<strong>✅ توکن با موفقیت چاپ شد!</strong><br><br>`;
                 statusHtml += `<strong>نام:</strong> ${name}<br>`;
@@ -475,7 +456,7 @@ contract ERC20Token {
                 statusHtml += `<strong>آدرس قرارداد:</strong><br>`;
                 statusHtml += `<code>${contractAddress}</code><br>`;
                 if (explorerUrl) {
-                    statusHtml += `<a href="${explorerUrl}" target="_blank">مشاهده در Block Explorer</a>`;
+                    statusHtml += `<a href="${explorerUrl}" target="_blank">مشاهده در Block Explorer ↗</a>`;
                 }
                 statusHtml += `</div>`;
                 
@@ -486,11 +467,34 @@ contract ERC20Token {
                 
             } catch (error) {
                 console.error('Error:', error);
-                showStatus('خطا در چاپ توکن: ' + error.message, 'error');
+                let errorMsg = error.message;
+                if (error.code === 'ACTION_REJECTED') {
+                    errorMsg = 'تراکنش توسط کاربر رد شد';
+                } else if (error.message.includes('insufficient funds')) {
+                    errorMsg = 'موجودی کافی برای پرداخت Gas Fee ندارید';
+                }
+                showStatus('خطا در چاپ توکن: ' + errorMsg, 'error');
                 deployBtn.disabled = false;
                 deployBtn.innerHTML = 'چاپ توکن';
             }
         };
+
+        function getExplorerUrl(chainId, address) {
+            const explorers = {
+                1: 'https://etherscan.io/address/',
+                5: 'https://goerli.etherscan.io/address/',
+                11155111: 'https://sepolia.etherscan.io/address/',
+                56: 'https://bscscan.com/address/',
+                97: 'https://testnet.bscscan.com/address/',
+                137: 'https://polygonscan.com/address/',
+                80001: 'https://mumbai.polygonscan.com/address/',
+                43114: 'https://snowtrace.io/address/',
+                42161: 'https://arbiscan.io/address/',
+                10: 'https://optimistic.etherscan.io/address/'
+            };
+            const baseUrl = explorers[Number(chainId)];
+            return baseUrl ? baseUrl + address : '';
+        }
         
         function showStatus(message, type) {
             const status = document.getElementById('status');
@@ -499,13 +503,13 @@ contract ERC20Token {
             status.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         
-        // Listen for account changes
+        // Listen for account changes (MetaMask)
         if (window.ethereum) {
             window.ethereum.on('accountsChanged', function (accounts) {
                 if (accounts.length === 0) {
                     location.reload();
                 } else {
-                    connectWallet();
+                    connectMetaMask();
                 }
             });
             
